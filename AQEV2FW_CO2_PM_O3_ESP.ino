@@ -66,7 +66,7 @@ boolean display_offline_mode_banner = false;
 RTC_DS3231 rtc;
 SdFat SD;
 
-#define MAX_SAMPLE_BUFFER_DEPTH  (60) // 5 minutes @ 5 second resolution
+#define MAX_SAMPLE_BUFFER_DEPTH  (90) // 7.5 minutes @ 5 second resolution
 #define CO2_SAMPLE_BUFFER         (0)
 #define A_PM1P0_SAMPLE_BUFFER     (1)
 #define A_PM2P5_SAMPLE_BUFFER     (2)
@@ -74,7 +74,7 @@ SdFat SD;
 #define B_PM1P0_SAMPLE_BUFFER     (4)
 #define B_PM2P5_SAMPLE_BUFFER     (5)
 #define B_PM10P0_SAMPLE_BUFFER    (6)
-#define _SAMPLE_BUFFER         (7)
+#define O3_SAMPLE_BUFFER          (7)
 #define NUM_SAMPLE_BUFFERS        (8)
 SoftwareSerial pmsx003Serial_2(A7, A5);  // RX, TX
 SoftwareSerial pmsx003Serial_1(A4, A5);  // RX, TX
@@ -292,11 +292,16 @@ uint8_t mode = MODE_OPERATIONAL;
 #define EEPROM_CO2_SENSITIVITY    (EEPROM_PM10P0_CAL_OFFSET - 4)      // float value, 4-bytes, the sensitivity from the sticker  [UNUSED]
 #define EEPROM_CO2_CAL_SLOPE      (EEPROM_CO2_SENSITIVITY - 4)     // float value, 4-bytes, the slope applied to the sensor   [UNUSED]
 #define EEPROM_CO2_CAL_OFFSET     (EEPROM_CO2_CAL_SLOPE - 4)       // float value, 4-btyes, the offset applied to the sensor
+#define EEPROM_TEMPERATURE_OFFLINE_OFFSET (EEPROM_CO2_CAL_OFFSET - 4)
+#define EEPROM_HUMIDITY_OFFLINE_OFFSET (EEPROM_TEMPERATURE_OFFLINE_OFFSET - 4)
+#define EEPROM_MQTT_STAY_CONNECTED (EEPROM_HUMIDITY_OFFLINE_OFFSET - 1)
 //  /\
 //   L Add values up here by subtracting offsets to previously added values
 //   * ... and make sure the addresses don't collide and start overlapping!
 //   T Add values down here by adding offsets to previously added values
 //  \/
+#define EEPROM_BACKUP_HUMIDITY_OFFLINE_OFFSET    (EEPROM_BACKUP_TEMPERATURE_OFFLINE_OFFSET + 4)
+#define EEPROM_BACKUP_TEMPERATURE_OFFLINE_OFFSET (EEPROM_BACKUP_NTP_TZ_OFFSET_HRS + 4)
 #define EEPROM_BACKUP_NTP_TZ_OFFSET_HRS  (EEPROM_BACKUP_HUMIDITY_OFFSET + 4)
 #define EEPROM_BACKUP_HUMIDITY_OFFSET    (EEPROM_BACKUP_TEMPERATURE_OFFSET + 4)
 #define EEPROM_BACKUP_TEMPERATURE_OFFSET (EEPROM_BACKUP_PRIVATE_KEY + 32)
@@ -1689,9 +1694,9 @@ void initializeNewConfigSettings(void) {
     uint8_t backlight_startup = eeprom_read_byte((uint8_t *) EEPROM_BACKLIGHT_STARTUP);
     uint16_t backlight_duration = eeprom_read_word((uint16_t *) EEPROM_BACKLIGHT_DURATION);
     if((backlight_startup == 0xFF) || (backlight_duration == 0xFFFF)) {
-        configInject("aqe\r");
-        configInject("backlight initon\r");
-        configInject("backlight 60\r");
+        configInject(F("aqe\r"));
+        configInject(F("backlight initon\r"));
+        configInject(F("backlight 60\r"));
         in_config_mode = true;
     }
 
@@ -1701,10 +1706,10 @@ void initializeNewConfigSettings(void) {
     uint16_t l_averaging_interval = eeprom_read_word((uint16_t * ) EEPROM_AVERAGING_INTERVAL);
     if((l_sampling_interval == 0xFFFF) || (l_reporting_interval == 0xFFFF) || (l_averaging_interval == 0xFFFF)) {
         if(!in_config_mode) {
-            configInject("aqe\r");
+            configInject(F("aqe\r"));
             in_config_mode = true;
         }
-        configInject("sampling 5, 60, 60\r");
+        configInject(F("sampling 5, 450, 60\r"));
     }
 
 // the following two blocks of code are a 'hot-fix' to the slope calculation,
@@ -1714,13 +1719,13 @@ void initializeNewConfigSettings(void) {
     float stored_slope = eeprom_read_float((const float *) EEPROM_O3_CAL_SLOPE);
     if(calculated_slope != stored_slope) {
         if(!in_config_mode) {
-            configInject("aqe\r");
+            configInject(F("aqe\r"));
             in_config_mode = true;
         }
         memset(command_buf, 0, 128);
         snprintf(command_buf, 127, "o3_sen %8.4f\r", sensitivity);
         configInject(command_buf);
-        configInject("backup o3\r");
+        configInject(F("backup o3\r"));
     }
 
     if(in_config_mode) {
@@ -2682,7 +2687,7 @@ void restore(char * arg) {
         configInject(F("mqttprefix /orgs/wd/aqe/\r"));
         configInject(F("mqttsuffix enable\r"));
 
-        configInject("sampling 5, 60, 60\r"); // sample every 5 seconds, average over 1 minutes, report every minute
+        configInject(F("sampling 5, 450, 60\r")); // sample every 5 seconds, average over 7.5 minutes, report every minute
         configInject(F("restore particulate\r"));
         configInject(F("restore o3\r"));
         configInject(F("o3_negz 1\r"));
